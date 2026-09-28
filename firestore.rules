@@ -1,0 +1,188 @@
+rules_version = '2';
+
+// =====================================================================
+//  行きたいマップ - Firestore セキュリティルール
+//
+//  ここが権限の実体です。クライアント側の JS は画面を出し分けるだけなので、
+//  ブラウザの開発者ツールをいくら触っても、このルールを超える操作はできません。
+//  （Cloud Functions は有料プランが必要なため一切使っていません）
+// =====================================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- 共通ヘルパー ----------
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function meDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function hasProfile() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    // 有効な（停止されていない）利用者か
+    function activeProfile() {
+      return hasProfile() && meDoc().data.disabled != true;
+    }
+
+    function myRole() {
+      return activeProfile() ? meDoc().data.role : 'viewer';
+    }
+
+    function isAdmin() {
+      return myRole() == 'admin';
+    }
+
+    // 停止されていない利用者か。
+    // 閲覧用の共有アカウントは users ドキュメントを持たないので true になる。
+    function notBanned() {
+      return signedIn() && (!hasProfile() || meDoc().data.disabled != true);
+    }
+
+    // 編集できるのは管理者と記載者のみ。
+    // 閲覧用の共有アカウントは users ドキュメントを持たないため false になる。
+    function canEdit() {
+      return myRole() == 'admin' || myRole() == 'editor';
+    }
+
+    // 招待コードが有効で、作ろうとしている役割と一致しているか
+    function validInvite(code, role) {
+      let inv = get(/databases/$(database)/documents/invites/$(code));
+      return inv != null
+        && inv.data.role == role
+        && inv.data.usedBy == null;
+    }
+
+    // ---------- meta: 初回セットアップの目印 ----------
+    // 「管理者が既にいるか」を未ログインでも判定できるように読み取りは全許可。
+    // 中身は日時と uid だけで、機密情報は入れない。
+    match /meta/claimed {
+      allow get: if true;
+      allow list: if isAdmin();
+      // 誰もいないときに1回だけ作成できる。以後は変更も削除も不可。
+      allow create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    match /meta/{other} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // ---------- users: 役割の保管場所 ----------
+    match /users/{uid} {
+      // 一覧は管理者のみ。自分の情報は本人も読める。
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+
+      // 作成は本人のみ。役割の正当性を必ず検証する。
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.disabled == false
+        && request.resource.data.role in ['admin', 'editor', 'viewer']
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 30
+        && (
+          // (A) 最初の管理者：まだ誰も管理者がいないときだけ
+          (
+            request.resource.data.role == 'admin'
+            && !exists(/databases/$(database)/documents/meta/claimed)
+          )
+          // (B) 招待コード経由：コードに紐づいた役割しか名乗れない
+          || (
+            request.resource.data.inviteCode is string
+            && validInvite(request.resource.data.inviteCode, request.resource.data.role)
+          )
+        );
+
+      // 役割の変更・停止・再開は管理者のみ（自分自身は変更できない）
+      allow update: if isAdmin()
+        && request.auth.uid != uid
+        && request.resource.data.role in ['admin', 'editor', 'viewer'];
+
+      // 名前だけは本人も直せる
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name']);
+
+      allow delete: if isAdmin() && request.auth.uid != uid;
+    }
+
+    // ---------- invites: 招待コード ----------
+    match /invites/{code} {
+      // コードを知っている本人がアカウント作成時に照合するため get は許可。
+      // 一覧（list）は管理者のみなので、コードの総当たり収集はできない。
+      allow get: if signedIn();
+      allow list: if isAdmin();
+
+      allow create: if isAdmin()
+        && request.resource.data.role in ['admin', 'editor']
+        && request.resource.data.usedBy == null;
+
+      // 未使用のコードを、使った本人が「使用済み」にする1回だけの更新
+      allow update: if signedIn()
+        && resource.data.usedBy == null
+        && request.resource.data.usedBy == request.auth.uid
+        && request.resource.data.role == resource.data.role;
+
+      allow delete: if isAdmin();
+    }
+
+    // ---------- boards: マップ ----------
+    match /boards/{boardId} {
+      allow read: if notBanned();
+      allow create: if canEdit()
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 60;
+      allow update: if canEdit();
+      allow delete: if isAdmin();
+
+      // ---------- spots: スポット ----------
+      match /spots/{spotId} {
+        allow read: if notBanned();
+
+        allow create: if canEdit()
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 80
+          && request.resource.data.lat is number
+          && request.resource.data.lng is number
+          && request.resource.data.lat >= -90 && request.resource.data.lat <= 90
+          && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
+          && request.resource.data.createdBy == request.auth.uid;
+
+        allow update: if canEdit()
+          && request.resource.data.name.size() <= 80
+          && request.resource.data.lat is number
+          && request.resource.data.lng is number;
+
+        allow delete: if canEdit();
+
+        // ---------- comments: コメント ----------
+        match /comments/{commentId} {
+          allow read: if notBanned();
+          allow create: if canEdit()
+            && request.resource.data.by == request.auth.uid
+            && request.resource.data.text is string
+            && request.resource.data.text.size() > 0
+            && request.resource.data.text.size() <= 500;
+          allow update: if false;
+          // 自分のコメント、または管理者なら削除できる
+          allow delete: if canEdit()
+            && (resource.data.by == request.auth.uid || isAdmin());
+        }
+      }
+    }
+
+    // 上記以外は全面禁止
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

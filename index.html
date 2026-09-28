@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>行きたいマップ - みんなで行きたい場所を共有</title>
+<meta name="description" content="みんなで行きたい場所を地図上に集めて共有できるアプリ" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%8D%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ============ 起動中 ============ -->
+<div id="boot" class="overlay">
+  <div class="spinner" role="status" aria-label="読み込み中"></div>
+</div>
+
+<!-- ============ 入口（ゲート） ============ -->
+<section id="gate" class="gate hidden" aria-labelledby="gate-title">
+  <div class="gate-card">
+    <div class="gate-head">
+      <div class="gate-logo" aria-hidden="true">📍</div>
+      <h1 id="gate-title">行きたいマップ</h1>
+      <p class="sub">みんなの「行きたい」を地図でシェア</p>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="入場方法">
+      <button type="button" class="tab active" role="tab" aria-selected="true"  data-tab="view">閲覧パスワード</button>
+      <button type="button" class="tab"        role="tab" aria-selected="false" data-tab="login">ログイン</button>
+      <button type="button" class="tab"        role="tab" aria-selected="false" data-tab="signup">招待コード</button>
+    </div>
+
+    <form id="form-view" class="pane" data-pane="view" autocomplete="off">
+      <p class="pane-note">アカウントなしで閲覧できます（編集はできません）。</p>
+      <!-- パスワード管理ソフトと支援技術のために、利用者名の欄を隠して用意しておく -->
+      <input type="text" id="view-user" value="閲覧者" autocomplete="username"
+             tabindex="-1" aria-hidden="true" readonly
+             style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none" />
+      <label class="field">
+        <span>閲覧パスワード</span>
+        <input type="password" id="view-pw" required autocomplete="current-password" placeholder="共有されたパスワード" />
+      </label>
+      <button class="btn primary block" type="submit">閲覧モードで入る</button>
+    </form>
+
+    <form id="form-login" class="pane hidden" data-pane="login">
+      <p class="pane-note">記載者・管理者はこちらからログインしてください。</p>
+      <label class="field">
+        <span>メールアドレス</span>
+        <input type="email" id="login-email" required autocomplete="email" placeholder="you@example.com" />
+      </label>
+      <label class="field">
+        <span>パスワード</span>
+        <input type="password" id="login-pw" required autocomplete="current-password" minlength="6" />
+      </label>
+      <button class="btn primary block" type="submit">ログイン</button>
+      <button class="linklike" type="button" id="btn-reset-pw">パスワードを忘れた場合</button>
+    </form>
+
+    <form id="form-signup" class="pane hidden" data-pane="signup">
+      <p class="pane-note">管理者から受け取った招待コードでアカウントを作成します。</p>
+      <label class="field">
+        <span>招待コード</span>
+        <input type="text" id="su-code" required placeholder="例）7K2M4XQ9" class="mono" maxlength="16" />
+      </label>
+      <label class="field">
+        <span>表示名</span>
+        <input type="text" id="su-name" required placeholder="やまだ" maxlength="30" />
+      </label>
+      <label class="field">
+        <span>メールアドレス</span>
+        <input type="email" id="su-email" required autocomplete="email" />
+      </label>
+      <label class="field">
+        <span>パスワード（6文字以上）</span>
+        <input type="password" id="su-pw" required autocomplete="new-password" minlength="6" />
+      </label>
+      <button class="btn primary block" type="submit">アカウントを作成</button>
+    </form>
+
+    <p id="gate-msg" class="msg" role="alert" aria-live="polite"></p>
+  </div>
+  <footer class="gate-foot">
+    <span>地図データ © OpenStreetMap contributors</span>
+  </footer>
+</section>
+
+<!-- ============ アプリ本体 ============ -->
+<div id="app" class="app hidden">
+  <header class="topbar">
+    <button id="btn-sidebar" class="icon-btn only-mobile" aria-label="リストを開閉" aria-expanded="false">☰</button>
+    <span class="brand"><span aria-hidden="true">📍</span><span class="brand-text">行きたいマップ</span></span>
+
+    <div class="board-picker">
+      <select id="board-select" aria-label="表示するマップ"></select>
+      <button id="btn-board-new"  class="icon-btn" title="新しいマップを作る" aria-label="新しいマップを作る">＋</button>
+      <button id="btn-board-edit" class="icon-btn" title="このマップの設定" aria-label="このマップの設定">⚙</button>
+    </div>
+
+    <span class="spacer"></span>
+    <span id="who" class="who" title=""></span>
+    <button id="btn-admin"  class="btn ghost sm hidden">管理</button>
+    <button id="btn-logout" class="btn ghost sm">退出</button>
+  </header>
+
+  <main class="main">
+    <aside id="sidebar" class="sidebar" aria-label="スポット一覧">
+      <div class="side-block">
+        <div class="geosearch">
+          <input id="geo-q" type="search"
+                 placeholder="地名・URL・座標を貼り付け" aria-label="場所を検索、またはGoogleマップのURLを貼り付け" />
+          <button id="geo-btn" class="btn sm" type="button">検索</button>
+        </div>
+        <p class="side-hint">Google マップの URL や「35.68, 139.76」を貼っても登録できます</p>
+        <ul id="geo-results" class="geo-results hidden" aria-label="検索結果"></ul>
+      </div>
+
+      <div class="side-block filters">
+        <input id="q" type="search" placeholder="リスト内をしぼり込む" aria-label="リスト内を検索" />
+        <div class="filter-row">
+          <select id="filter-cat" aria-label="カテゴリでしぼり込む"></select>
+          <select id="filter-state" aria-label="状態でしぼり込む">
+            <option value="all">すべて</option>
+            <option value="todo">未訪問</option>
+            <option value="done">訪問済み</option>
+          </select>
+          <select id="sort" aria-label="並び順">
+            <option value="order">順路順</option>
+            <option value="votes">行きたい順</option>
+            <option value="new">新しい順</option>
+            <option value="name">名前順</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="spot-list" class="spot-list" tabindex="-1"></div>
+
+      <div class="side-foot">
+        <label class="chk"><input type="checkbox" id="show-route" /> 順路を線で表示</label>
+        <button id="btn-export" class="btn ghost sm" type="button">書き出し</button>
+      </div>
+    </aside>
+
+    <div class="mapwrap">
+      <div id="map" aria-label="地図"></div>
+      <div id="map-banner" class="map-banner hidden" role="status"></div>
+      <button id="btn-add-mode" class="fab" type="button">＋ スポットを追加</button>
+    </div>
+  </main>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast-root" class="toast-root" aria-live="polite"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

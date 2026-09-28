@@ -1,0 +1,20 @@
+# Firebase CLI
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# OS / エディタ
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# 依存関係（このプロジェクトでは使いませんが念のため）
+node_modules/
+
+# 作業中に出る一時ファイル
+_*.log
+_*.txt
+_*.py
+_*.html
