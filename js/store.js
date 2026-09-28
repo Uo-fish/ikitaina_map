@@ -204,18 +204,59 @@ export function updateBoard(bid, data) {
   return updateDoc(doc(db, "boards", bid), { ...data, updatedAt: serverTimestamp() });
 }
 
-/** マップを削除（中のスポットも消す） */
-export async function deleteBoard(bid) {
-  const spots = await getDocs(spotsCol(bid));
-  // 1バッチ500件上限に合わせて分割
-  const chunks = [];
-  for (let i = 0; i < spots.docs.length; i += 400) chunks.push(spots.docs.slice(i, i + 400));
-  for (const chunk of chunks) {
+/** 配列を指定サイズごとに分ける（Firestore のバッチ上限500件対策） */
+function chunk(arr, size = 400) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+/** 参照の配列をまとめて削除する（1件でも失敗すればエラー） */
+async function deleteRefs(refs) {
+  for (const part of chunk(refs)) {
     const b = writeBatch(db);
-    chunk.forEach((d) => b.delete(d.ref));
+    part.forEach((r) => b.delete(r));
     await b.commit();
   }
+}
+
+/**
+ * 消せるものだけ消す。
+ * コメントの削除権限は「自分のもの or 管理者」なので、記載者が
+ * スポットを消すときは他人のコメントを消せない。バッチは原子的で
+ * 1件の拒否が全体を巻き添えにするため、ここは個別に試して無視する。
+ * @returns {number} 消せなかった件数
+ */
+async function deleteRefsBestEffort(refs) {
+  const results = await Promise.allSettled(refs.map((r) => deleteDoc(r)));
+  return results.filter((r) => r.status === "rejected").length;
+}
+
+/**
+ * マップを削除（中のスポットとコメントも消す）。
+ * Firestore は親ドキュメントを消してもサブコレクションが残るため、
+ * コメントを先に集めて明示的に削除する。
+ */
+export async function deleteBoard(bid) {
+  const spots = await getDocs(spotsCol(bid));
+
+  // 各スポットのコメントを集める
+  const commentRefs = [];
+  for (const s of spots.docs) {
+    const cs = await getDocs(collection(db, "boards", bid, "spots", s.id, "comments"));
+    cs.docs.forEach((c) => commentRefs.push(c.ref));
+  }
+
+  // 管理者はすべてのコメントを消せるが、念のため個別実行にしておく
+  await deleteRefsBestEffort(commentRefs);
+  await deleteRefs(spots.docs.map((d) => d.ref));
   await deleteDoc(doc(db, "boards", bid));
+}
+
+/** マップ内のスポット数を数える（削除前の確認表示用） */
+export async function countSpots(bid) {
+  const snap = await getDocs(spotsCol(bid));
+  return snap.size;
 }
 
 export function rememberBoard(bid) {
@@ -268,7 +309,18 @@ export function updateSpot(bid, sid, data) {
   return updateDoc(spotRef(bid, sid), { ...data, updatedAt: serverTimestamp() });
 }
 
-export const deleteSpot = (bid, sid) => deleteDoc(spotRef(bid, sid));
+/**
+ * スポットを削除（付いているコメントも消す）。
+ * 記載者は他人のコメントを消せないので、消せない分は残したまま
+ * スポット本体の削除を進める（残骸は管理者が消せる）。
+ */
+export async function deleteSpot(bid, sid) {
+  try {
+    const cs = await getDocs(collection(db, "boards", bid, "spots", sid, "comments"));
+    await deleteRefsBestEffort(cs.docs.map((d) => d.ref));
+  } catch { /* コメントが読めなくても本体の削除は進める */ }
+  await deleteDoc(spotRef(bid, sid));
+}
 
 /** 「行きたい」の付け外し */
 export function toggleVote(bid, sid, on) {

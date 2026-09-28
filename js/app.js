@@ -212,6 +212,8 @@ function startApp() {
   ui.addMode.classList.toggle("hidden", !S.canEdit());
   $("btn-board-new").classList.toggle("hidden", !S.canEdit());
   $("btn-board-edit").classList.toggle("hidden", !S.canEdit());
+  // マップの削除は管理者だけ。押せないボタンは見せない
+  $("btn-board-del").classList.toggle("hidden", !S.isAdmin());
 
   if (!mapReady) {
     M.initMap($("map"), {
@@ -320,6 +322,74 @@ $("btn-board-new").addEventListener("click", async () => {
   } catch (e) { toast(S.errMsg(e), "err"); }
 });
 
+/**
+ * マップを削除する（管理者のみ）。
+ * 中身の件数を数えて確認し、マップ名の入力で取り違えを防ぐ。
+ * @returns {Promise<boolean>} 削除したか
+ */
+async function deleteBoardFlow(board) {
+  if (!S.isAdmin()) {
+    toast("マップの削除は管理者のみ可能です", "err");
+    return false;
+  }
+
+  let n = null;
+  try { n = await S.countSpots(board.id); } catch { /* 数えられなくても続行 */ }
+
+  return new Promise((resolve) => {
+    let done = false;
+    const m = modal({
+      title: "マップを削除",
+      body: `
+        <p style="margin:0 0 12px">
+          <b>${esc(board.name)}</b>${n !== null ? `（スポット ${n} 件）` : ""} を削除します。
+        </p>
+        <p style="margin:0 0 14px;color:#e04a4a">
+          中のスポットとコメントもすべて消えます。この操作は取り消せません。
+        </p>
+        <label class="field">
+          <span>確認のため、マップ名を入力してください</span>
+          <input type="text" id="del-name" placeholder="${esc(board.name)}" autocomplete="off" />
+        </label>`,
+      actions: [
+        { label: "キャンセル", onClick: () => { done = true; resolve(false); } },
+        {
+          label: "削除する", kind: "danger",
+          onClick: async ({ el }) => {
+            const typed = el.querySelector("#del-name").value.trim();
+            if (typed !== board.name) {
+              toast("マップ名が一致しません", "err");
+              return false;
+            }
+            try {
+              await S.deleteBoard(board.id);
+            } catch (e) {
+              toast(S.errMsg(e), "err");
+              return false;
+            }
+            // 次に選ぶマップを決める（購読は watchBoards が拾い直す）
+            S.state.boardId = null;
+            subscribedBoard = null;
+            selectedId = null;
+            toast(`「${board.name}」を削除しました`, "ok");
+            done = true;
+            resolve(true);
+          },
+        },
+      ],
+    });
+    const obs = new MutationObserver(() => {
+      if (!m.el.isConnected) { obs.disconnect(); if (!done) resolve(false); }
+    });
+    obs.observe($("modal-root"), { childList: true });
+  });
+}
+
+$("btn-board-del").addEventListener("click", () => {
+  if (!S.state.board) return toast("削除するマップがありません", "err");
+  deleteBoardFlow(S.state.board);
+});
+
 $("btn-board-edit").addEventListener("click", () => {
   if (!S.canEdit() || !S.state.board) return;
   const b = S.state.board;
@@ -347,24 +417,13 @@ $("btn-board-edit").addEventListener("click", () => {
       });
     },
     actions: [
-      {
+      // 削除できるのは管理者だけなので、それ以外にはボタンを出さない
+      ...(S.isAdmin() ? [{
         label: "マップを削除", kind: "danger", side: "left", keep: true,
         onClick: async ({ close }) => {
-          if (!S.isAdmin()) return toast("削除は管理者のみ可能です", "err");
-          const ok = await confirmDialog(
-            "マップを削除しますか？",
-            `「${b.name}」と、その中のスポットすべてを削除します。この操作は取り消せません。`,
-            "削除する",
-          );
-          if (!ok) return;
-          try {
-            await S.deleteBoard(b.id);
-            S.state.boardId = null;
-            toast("削除しました", "ok");
-            close();
-          } catch (e) { toast(S.errMsg(e), "err"); }
+          if (await deleteBoardFlow(b)) close();
         },
-      },
+      }] : []),
       { label: "キャンセル" },
       {
         label: "保存", kind: "primary",

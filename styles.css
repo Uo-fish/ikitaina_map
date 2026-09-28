@@ -78,6 +78,8 @@ html, body {
   flex: 0 0 auto;
 }
 .icon-btn:hover { background: rgba(0, 0, 0, .06); }
+.icon-btn.danger { color: var(--danger); }
+.icon-btn.danger:hover { background: #fdeaea; }
 
 .linklike {
   appearance: none; background: none; border: 0;
