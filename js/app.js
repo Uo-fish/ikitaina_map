@@ -194,11 +194,13 @@ function teardown() {
   setAddMode(false);
 }
 
-$("btn-logout").addEventListener("click", async () => {
+async function logoutFlow() {
   if (!(await confirmDialog("退出しますか？", "またパスワードでログインできます。", "退出する"))) return;
   teardown();
   await S.logout();
-});
+}
+
+$("btn-logout").addEventListener("click", logoutFlow);
 
 // =====================================================================
 //  アプリ開始
@@ -1276,8 +1278,42 @@ function openSearchDialog(initial = "") {
   return m;
 }
 
-$("btn-search").addEventListener("click", () => openSearchDialog());
 $("btn-search-fab").addEventListener("click", () => openSearchDialog());
+
+// =====================================================================
+//  スマホ用メニュー（トップバーに入り切らない項目をまとめる）
+// =====================================================================
+$("btn-menu").addEventListener("click", () => {
+  const roleLabel = { admin: "管理者", editor: "記載者", viewer: "閲覧者" }[S.state.role] || "";
+  const email = S.state.user?.email === VIEWER_EMAIL ? "閲覧モード" : (S.state.user?.email || "");
+
+  modal({
+    title: "メニュー",
+    body: `
+      <div class="menu-user">
+        <div class="menu-name">${esc(S.myName())}
+          <span class="badge ${esc(S.state.role)}">${esc(roleLabel)}</span>
+        </div>
+        <div class="menu-email">${esc(email)}</div>
+      </div>
+      <div class="menu-list">
+        ${S.isAdmin() ? `<button class="menu-item" type="button" data-act="admin">
+          <span class="menu-ico">👤</span> アカウント管理</button>` : ""}
+        <button class="menu-item" type="button" data-act="logout">
+          <span class="menu-ico">🚪</span> 退出する</button>
+      </div>`,
+    onMount: (el, close) => {
+      el.querySelector(".menu-list").addEventListener("click", (e) => {
+        const b = e.target.closest("[data-act]");
+        if (!b) return;
+        close();
+        if (b.dataset.act === "admin") { if (S.isAdmin()) openAdmin(); }
+        if (b.dataset.act === "logout") logoutFlow();
+      });
+    },
+    actions: [{ label: "閉じる" }],
+  });
+});
 
 $("btn-sidebar").addEventListener("click", () => {
   const open = ui.sidebar.classList.toggle("open");

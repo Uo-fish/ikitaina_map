@@ -194,6 +194,21 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); outlin
 .badge.editor { background: #dcecff; color: #1f57c3; }
 .badge.viewer { background: #e7e9ee; color: #59636f; }
 
+/* スマホ用メニュー */
+.menu-user { padding: 2px 2px 14px; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+.menu-name { font-weight: 800; font-size: 16px; }
+.menu-email { font-size: 12px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+.menu-list { display: flex; flex-direction: column; gap: 4px; }
+.menu-item {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; text-align: left;
+  appearance: none; border: 0; background: transparent;
+  font: inherit; font-size: 15px; font-weight: 600; color: var(--text);
+  padding: 14px 10px; border-radius: 10px; cursor: pointer;
+}
+.menu-item:hover, .menu-item:active { background: #f0f3f8; }
+.menu-ico { font-size: 19px; line-height: 1; width: 24px; text-align: center; }
+
 .main { flex: 1 1 auto; display: flex; min-height: 0; }
 
 .sidebar {
@@ -429,11 +444,20 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); outlin
 
 /* ============ レスポンシブ ============ */
 @media (max-width: 760px) {
-  :root { --side-w: 300px; }
+  :root { --side-w: 300px; --topbar-h: 52px; }
   .only-mobile { display: inline-flex; }
-  .brand-text { display: none; }
-  .who { max-width: 84px; }
-  .board-picker select { min-width: 92px; }
+  .brand { display: none; }
+
+  /* トップバーは ☰ / マップ選択 / ⋮ の3つだけに絞る */
+  .topbar { gap: 6px; padding: 0 8px; }
+  .who, #btn-admin, #btn-logout { display: none; }
+  .board-picker { flex: 1 1 auto; }
+  .board-picker select {
+    flex: 1 1 auto; min-width: 0; max-width: none;
+    min-height: 38px; font-size: 15px;
+  }
+  .board-picker .icon-btn { width: 38px; height: 38px; }
+  #btn-menu { margin-left: 2px; }
   .sidebar {
     position: absolute; top: var(--topbar-h); bottom: 0; left: 0; z-index: 700;
     box-shadow: var(--shadow-lg);
