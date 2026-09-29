@@ -170,21 +170,131 @@ export function refresh() {
 }
 
 // ---------------------------------------------------------------------
-//  地名検索（Nominatim / 無料・APIキー不要）
-//  利用ポリシー上、連続リクエストは避ける必要があるため呼び出し側で間引く
+//  地名・店名検索
+//   1) Nominatim（OpenStreetMap 公式・無料・APIキー不要）
+//   2) 見つからないときは Photon（Komoot 提供・無料・APIキー不要）で再挑戦
+//  どちらも利用ポリシー上、連続した大量リクエストは避ける必要があるため
+//  呼び出し側でボタン操作のみに限定している。
 // ---------------------------------------------------------------------
-export async function geocode(q) {
+
+/** 場所の種別を日本語の短いラベルにする */
+function kindLabel(r) {
+  const t = r.type || "";
+  const c = r.category || r.class || "";
+  const table = {
+    restaurant: "レストラン", cafe: "カフェ", fast_food: "ファストフード",
+    bar: "バー", pub: "居酒屋", bakery: "パン屋", confectionery: "菓子店",
+    hotel: "ホテル", hostel: "宿", ryokan: "旅館", guest_house: "民宿",
+    supermarket: "スーパー", convenience: "コンビニ", department_store: "百貨店",
+    mall: "ショッピングモール", clothes: "衣料品", books: "書店",
+    museum: "博物館", gallery: "美術館", attraction: "観光地",
+    viewpoint: "展望", theme_park: "テーマパーク", zoo: "動物園",
+    aquarium: "水族館", castle: "城", temple: "寺", shrine: "神社",
+    park: "公園", garden: "庭園", beach: "浜", peak: "山",
+    station: "駅", bus_stop: "バス停", airport: "空港",
+    onsen: "温泉", spa: "スパ", public_bath: "銭湯",
+    city: "市", town: "町", village: "村", suburb: "地区",
+    neighbourhood: "地区", hamlet: "集落", quarter: "地区",
+  };
+  return table[t] || table[c] || "";
+}
+
+/** 現在の地図表示範囲（検索で近くを優先するため） */
+function viewboxParam() {
+  if (!map) return "";
+  try {
+    const b = map.getBounds();
+    // 左,上,右,下 の順
+    return `&viewbox=${b.getWest()},${b.getNorth()},${b.getEast()},${b.getSouth()}`;
+  } catch {
+    return "";
+  }
+}
+
+/** 同じ場所を指す結果をまとめる */
+function dedupe(rows) {
+  const seen = new Set();
+  return rows.filter((r) => {
+    if (!Number.isFinite(r.lat) || !Number.isFinite(r.lng)) return false;
+    // 約10m四方を同一とみなす
+    const key = `${r.lat.toFixed(4)},${r.lng.toFixed(4)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function searchNominatim(q, { nearby = true } = {}) {
   const url = "https://nominatim.openstreetmap.org/search"
-    + `?format=jsonv2&limit=6&accept-language=ja&q=${encodeURIComponent(q)}`;
+    + "?format=jsonv2&limit=10&addressdetails=1&accept-language=ja"
+    + `&q=${encodeURIComponent(q)}`
+    + (nearby ? viewboxParam() : "");
   const res = await fetch(url, { headers: { Accept: "application/json" } });
   if (!res.ok) throw new Error("検索に失敗しました");
   const rows = await res.json();
   return rows.map((r) => ({
-    name: (r.name || r.display_name || "").split(",")[0],
+    name: (r.name || String(r.display_name || "").split(",")[0] || "").trim(),
     addr: r.display_name || "",
+    kind: kindLabel(r),
     lat: parseFloat(r.lat),
     lng: parseFloat(r.lon),
   }));
+}
+
+/** Nominatim で見つからない店名の救済用（表記ゆれに強い） */
+async function searchPhoton(q) {
+  let url = "https://photon.komoot.io/api/?limit=10&lang=default"
+    + `&q=${encodeURIComponent(q)}`;
+  if (map) {
+    try {
+      const c = map.getCenter();
+      url += `&lat=${c.lat}&lon=${c.lng}`; // 近い順に並べてもらう
+    } catch { /* noop */ }
+  }
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error("検索に失敗しました");
+  const j = await res.json();
+  return (j.features || []).map((f) => {
+    const p = f.properties || {};
+    const parts = [p.name, p.street, p.district, p.city, p.state, p.country]
+      .filter(Boolean);
+    return {
+      name: (p.name || p.street || "").trim(),
+      addr: parts.join(", "),
+      kind: kindLabel(p),
+      lat: f.geometry?.coordinates?.[1],
+      lng: f.geometry?.coordinates?.[0],
+    };
+  });
+}
+
+/**
+ * 名前で場所を検索する。
+ * 地図の表示範囲の近くを優先し、見つからなければ範囲外・別サービスへ広げる。
+ * @returns {Promise<Array<{name,addr,kind,lat,lng}>>}
+ */
+export async function geocode(q) {
+  const query = String(q || "").trim();
+  if (!query) return [];
+
+  // 1) 地図の近くを優先して検索
+  let rows = [];
+  try { rows = await searchNominatim(query, { nearby: true }); }
+  catch { /* 次の手段へ */ }
+
+  // 2) 近くに無ければ範囲を広げる
+  if (!rows.length) {
+    try { rows = await searchNominatim(query, { nearby: false }); }
+    catch { /* 次の手段へ */ }
+  }
+
+  // 3) それでも無ければ別サービスで再挑戦（店名の表記ゆれに強い）
+  if (!rows.length) {
+    try { rows = await searchPhoton(query); }
+    catch { /* 空で返す */ }
+  }
+
+  return dedupe(rows.filter((r) => r.name)).slice(0, 8);
 }
 
 /** 座標 → 住所（スポット追加時に住所を自動で埋める） */

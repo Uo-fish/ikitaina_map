@@ -210,6 +210,8 @@ function startApp() {
 
   $("btn-admin").classList.toggle("hidden", !S.isAdmin());
   ui.addMode.classList.toggle("hidden", !S.canEdit());
+  // 検索は閲覧者にも役立つが、登録できないので追加系の導線は隠す
+  $("btn-search-fab").classList.toggle("hidden", !S.canEdit());
   $("btn-board-new").classList.toggle("hidden", !S.canEdit());
   $("btn-board-edit").classList.toggle("hidden", !S.canEdit());
   // マップの削除は管理者だけ。押せないボタンは見せない
@@ -993,23 +995,25 @@ function showShortLinkHelp(url) {
         <code>maps.app.goo.gl</code> の短縮 URL は、ブラウザのセキュリティ制限
         （CORS）により、このアプリから展開先を読み取れません。
       </p>
-      <p style="margin:0 0 12px"><b>かんたんな解決方法</b></p>
-      <ol style="margin:0 0 14px;padding-left:1.3em;line-height:1.9">
-        <li>下のボタンで短縮 URL を開く</li>
-        <li>開いた Google マップの<b>アドレスバーの URL をコピー</b></li>
-        <li>それをこの検索欄に貼り付ける</li>
-      </ol>
+      <p style="margin:0 0 12px"><b>おすすめ: 名前で検索する</b></p>
+      <p style="margin:0 0 14px">
+        お店や施設の名前がわかっていれば、そちらで探すのが一番早いです。
+        下の「名前で検索」から登録できます。
+      </p>
       <p class="help" style="margin:0">
-        Google マップのアプリで「共有」ではなく、パソコンのブラウザで開いた
+        URL から登録したい場合は、短縮 URL を一度ブラウザで開き、
         アドレスバーの URL（<code>/maps/place/...@35.68,139.76...</code> の形）を
-        使うと一度で登録できます。
+        コピーして貼り付けてください。
       </p>`,
     actions: [
       {
-        label: "短縮 URL を開く", kind: "primary", keep: true,
+        label: "短縮 URL を開く", keep: true,
         onClick: () => { window.open(url, "_blank", "noopener"); },
       },
-      { label: "閉じる" },
+      {
+        label: "名前で検索", kind: "primary",
+        onClick: () => { setTimeout(() => openSearchDialog(), 0); },
+      },
     ],
   });
 }
@@ -1026,12 +1030,14 @@ async function runGeocode() {
   try {
     const rows = await M.geocode(q);
     if (!rows.length) {
-      geoList.innerHTML = `<li style="pointer-events:none;color:#6b7684">見つかりませんでした</li>`;
+      geoList.innerHTML = `<li style="pointer-events:none;color:#6b7684">
+        見つかりませんでした。地名を足すと探しやすくなります（例:「ラーメン 新宿」）。
+      </li>`;
       return;
     }
     geoList.innerHTML = rows.map((r, i) => `
       <li data-i="${i}" tabindex="0" role="button">
-        <div class="g-name">${esc(r.name)}</div>
+        <div class="g-name">${esc(r.name)}${r.kind ? ` <span class="g-kind">${esc(r.kind)}</span>` : ""}</div>
         <div class="g-addr">${esc(r.addr)}</div>
       </li>`).join("");
     geoList._rows = rows;
@@ -1052,12 +1058,10 @@ $("geo-q").addEventListener("paste", (e) => {
   setTimeout(runGeocode, 0);
 });
 
-geoList.addEventListener("click", (e) => {
-  const li = e.target.closest("li[data-i]");
-  if (!li) return;
+function pickGeoResult(li) {
   const r = geoList._rows?.[Number(li.dataset.i)];
   if (!r) return;
-  M.setView([r.lat, r.lng], 16);
+  M.setView([r.lat, r.lng], 17);
   geoList.classList.add("hidden");
   $("geo-q").value = "";
   if (S.canEdit() && S.state.boardId) {
@@ -1065,6 +1069,17 @@ geoList.addEventListener("click", (e) => {
     openSpotDialog(null, { lat: r.lat, lng: r.lng, addr: r.addr, name: r.name });
   }
   if (window.matchMedia("(max-width: 760px)").matches) closeSidebar();
+}
+
+geoList.addEventListener("click", (e) => {
+  const li = e.target.closest("li[data-i]");
+  if (li) pickGeoResult(li);
+});
+
+geoList.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const li = e.target.closest("li[data-i]");
+  if (li) { e.preventDefault(); pickGeoResult(li); }
 });
 
 // =====================================================================
@@ -1166,6 +1181,103 @@ function closeSidebar() {
   ui.sidebar.classList.remove("open");
   $("btn-sidebar").setAttribute("aria-expanded", "false");
 }
+
+// =====================================================================
+//  名前で検索して登録（スマホでも使いやすい独立ダイアログ）
+//  短縮URLが読めないスマホでは、こちらが主な登録手段になる
+// =====================================================================
+function openSearchDialog(initial = "") {
+  let rows = [];
+
+  const m = modal({
+    title: "場所を検索して追加",
+    body: `
+      <div class="geosearch" style="margin-bottom:10px">
+        <input type="search" id="ms-q" enterkeyhint="search"
+               value="${esc(initial)}" placeholder="例）清水寺、スターバックス 渋谷"
+               aria-label="場所の名前" />
+        <button class="btn primary" type="button" id="ms-go" style="flex:0 0 auto">検索</button>
+      </div>
+      <p class="help" style="margin:0 0 12px">
+        お店や施設の名前で探せます。地名を足すと見つかりやすくなります
+        （例:「ラーメン 新宿」）。Google マップの URL や座標の貼り付けにも対応。
+      </p>
+      <ul class="geo-results" id="ms-list" style="max-height:46vh"></ul>`,
+    actions: [{ label: "閉じる" }],
+    onMount: (el, close) => {
+      const input = el.querySelector("#ms-q");
+      const list = el.querySelector("#ms-list");
+      const btn = el.querySelector("#ms-go");
+
+      const render = (html) => { list.innerHTML = html; };
+
+      const run = async () => {
+        const q = input.value.trim();
+        if (!q) return;
+
+        // URL や座標ならそのまま登録へ進む
+        if (parseGoogleMapsUrl(q)) {
+          close();
+          $("geo-q").value = q;
+          handlePastedLocation(q);
+          return;
+        }
+
+        btn.disabled = true;
+        render(`<li style="pointer-events:none;color:#6b7684">検索中...</li>`);
+        try {
+          rows = await M.geocode(q);
+          if (!rows.length) {
+            render(`<li style="pointer-events:none;color:#6b7684">
+                      見つかりませんでした。別の言い方や、地名を足して試してください。
+                    </li>`);
+            return;
+          }
+          render(rows.map((r, i) => `
+            <li data-i="${i}" tabindex="0" role="button">
+              <div class="g-name">${esc(r.name)}${r.kind ? ` <span class="g-kind">${esc(r.kind)}</span>` : ""}</div>
+              <div class="g-addr">${esc(r.addr)}</div>
+            </li>`).join(""));
+        } catch {
+          render(`<li style="pointer-events:none;color:#6b7684">検索に失敗しました</li>`);
+        } finally {
+          btn.disabled = false;
+        }
+      };
+
+      btn.addEventListener("click", run);
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); run(); }
+      });
+
+      const pick = (li) => {
+        const r = rows[Number(li.dataset.i)];
+        if (!r) return;
+        close();
+        M.setView([r.lat, r.lng], 17);
+        M.showGhost({ lat: r.lat, lng: r.lng });
+        if (S.canEdit() && S.state.boardId) {
+          openSpotDialog(null, { lat: r.lat, lng: r.lng, addr: r.addr, name: r.name });
+        }
+      };
+      list.addEventListener("click", (e) => {
+        const li = e.target.closest("li[data-i]");
+        if (li) pick(li);
+      });
+      list.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        const li = e.target.closest("li[data-i]");
+        if (li) { e.preventDefault(); pick(li); }
+      });
+
+      if (initial) run();
+    },
+  });
+  return m;
+}
+
+$("btn-search").addEventListener("click", () => openSearchDialog());
+$("btn-search-fab").addEventListener("click", () => openSearchDialog());
 
 $("btn-sidebar").addEventListener("click", () => {
   const open = ui.sidebar.classList.toggle("open");

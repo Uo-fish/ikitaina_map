@@ -102,6 +102,7 @@
     </div>
 
     <span class="spacer"></span>
+    <button id="btn-search" class="icon-btn only-mobile" title="場所を名前で検索" aria-label="場所を名前で検索">🔍</button>
     <span id="who" class="who" title=""></span>
     <button id="btn-admin"  class="btn ghost sm hidden">管理</button>
     <button id="btn-logout" class="btn ghost sm">退出</button>
@@ -111,11 +112,14 @@
     <aside id="sidebar" class="sidebar" aria-label="スポット一覧">
       <div class="side-block">
         <div class="geosearch">
-          <input id="geo-q" type="search"
-                 placeholder="地名・URL・座標を貼り付け" aria-label="場所を検索、またはGoogleマップのURLを貼り付け" />
-          <button id="geo-btn" class="btn sm" type="button">検索</button>
+          <input id="geo-q" type="search" enterkeyhint="search"
+                 placeholder="店名・地名で検索" aria-label="場所を名前で検索、またはGoogleマップのURLを貼り付け" />
+          <button id="geo-btn" class="btn sm primary" type="button">検索</button>
         </div>
-        <p class="side-hint">Google マップの URL や「35.68, 139.76」を貼っても登録できます</p>
+        <p class="side-hint">
+          お店や地名を入れて検索できます。Google マップの URL や
+          「35.68, 139.76」の貼り付けにも対応しています。
+        </p>
         <ul id="geo-results" class="geo-results hidden" aria-label="検索結果"></ul>
       </div>
 
@@ -148,7 +152,10 @@
     <div class="mapwrap">
       <div id="map" aria-label="地図"></div>
       <div id="map-banner" class="map-banner hidden" role="status"></div>
-      <button id="btn-add-mode" class="fab" type="button">＋ スポットを追加</button>
+      <div class="fab-group">
+        <button id="btn-search-fab" class="fab secondary" type="button">🔍 名前で検索</button>
+        <button id="btn-add-mode" class="fab" type="button">＋ 地図から追加</button>
+      </div>
     </div>
   </main>
 </div>

@@ -236,16 +236,29 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); outlin
   padding: 8px 14px; border-radius: 999px; font-size: 13px; font-weight: 600;
   box-shadow: var(--shadow); white-space: nowrap;
 }
-.fab {
+.fab-group {
   position: absolute; right: 16px; bottom: 26px; z-index: 600;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+}
+.fab {
   appearance: none; border: 0; cursor: pointer;
   background: var(--primary); color: #fff;
   font: inherit; font-weight: 700; font-size: 14px;
   padding: 12px 18px; border-radius: 999px;
   box-shadow: var(--shadow-lg);
+  white-space: nowrap;
 }
 .fab:hover { background: var(--primary-dark); }
 .fab.active { background: var(--danger); }
+.fab.secondary { background: var(--surface); color: var(--text); }
+.fab.secondary:hover { background: #f0f3f8; }
+
+.g-kind {
+  display: inline-block; font-size: 10.5px; font-weight: 700;
+  background: #eef1f6; color: var(--muted);
+  padding: 1px 6px; border-radius: 999px; margin-left: 4px;
+  vertical-align: middle;
+}
 
 /* ============ スポットカード ============ */
 .spot-card {
@@ -429,7 +442,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); outlin
   }
   .sidebar.open { transform: none; }
   .main { position: relative; }
-  .fab { right: 12px; bottom: 18px; padding: 11px 15px; font-size: 13px; }
+  .fab-group { right: 12px; bottom: 18px; gap: 7px; }
+  .fab { padding: 11px 15px; font-size: 13px; }
   .modal-back { padding: 0; align-items: flex-end; }
   .modal { max-width: none; border-radius: 14px 14px 0 0; max-height: 92vh; }
 }
