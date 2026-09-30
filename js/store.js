@@ -286,6 +286,7 @@ export function watchSpots(bid, cb, onErr) {
 
 export function addSpot(bid, data) {
   const maxOrder = state.spots.reduce((m, s) => Math.max(m, s.order ?? 0), 0);
+  const status = data.status || "candidate";
   return addDoc(spotsCol(bid), {
     name: data.name,
     lat: data.lat,
@@ -295,7 +296,8 @@ export function addSpot(bid, data) {
     url: data.url || "",
     addr: data.addr || "",
     rating: data.rating || 0,
-    done: false,
+    status,
+    done: status === "visited", // 旧フィールドとの互換
     votes: {},
     order: maxOrder + 1,
     createdBy: myUid(),
@@ -306,7 +308,19 @@ export function addSpot(bid, data) {
 }
 
 export function updateSpot(bid, sid, data) {
-  return updateDoc(spotRef(bid, sid), { ...data, updatedAt: serverTimestamp() });
+  const patch = { ...data };
+  // status が変わるときは旧 done フィールドも合わせて更新する
+  if (typeof patch.status === "string") patch.done = patch.status === "visited";
+  return updateDoc(spotRef(bid, sid), { ...patch, updatedAt: serverTimestamp() });
+}
+
+/** 状態だけを素早く切り替える（カードのボタン用） */
+export function setSpotStatus(bid, sid, status) {
+  return updateDoc(spotRef(bid, sid), {
+    status,
+    done: status === "visited",
+    updatedAt: serverTimestamp(),
+  });
 }
 
 /**

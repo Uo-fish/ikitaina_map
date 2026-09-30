@@ -1,7 +1,7 @@
 // =====================================================================
 //  地図の描画（Leaflet + OpenStreetMap タイル／どちらも無料）
 // =====================================================================
-import { DEFAULT_CENTER, DEFAULT_ZOOM, catOf } from "./config.js";
+import { DEFAULT_CENTER, DEFAULT_ZOOM, catOf, statusOf, readStatus } from "./config.js";
 import { esc } from "./ui.js";
 
 let map = null;
@@ -44,12 +44,17 @@ export function setAddCursor(on) {
 
 function pinIcon(spot, num, selected) {
   const c = catOf(spot.cat);
-  const cls = ["pin-wrap", selected ? "sel" : "", spot.done ? "done" : ""].join(" ").trim();
+  const st = readStatus(spot);
+  const visited = st === "visited";
+  const cls = ["pin-wrap", selected ? "sel" : "", visited ? "done" : ""].join(" ").trim();
+  // 「行く」で決定したスポットは小さな旗を付けて目立たせる
+  const flag = st === "decided" ? `<div class="pin-flag" title="行くと決定">📌</div>` : "";
   return L.divIcon({
     className: "",
     html: `<div class="${cls}">
              <div class="pin" style="background:${c.color}"><span>${c.icon}</span></div>
              ${num ? `<div class="pin-num">${num}</div>` : ""}
+             ${flag}
            </div>`,
     iconSize: [30, 30],
     iconAnchor: [15, 30],
@@ -59,11 +64,12 @@ function pinIcon(spot, num, selected) {
 
 function popupHtml(spot, canEditNow) {
   const c = catOf(spot.cat);
+  const st = statusOf(readStatus(spot));
   const votes = Object.keys(spot.votes || {}).length;
   return `
     <b>${esc(spot.name)}</b><br />
     <span style="color:#6b7684;font-size:12px">
-      ${c.icon} ${esc(c.label)}${votes ? ` ・ ❤️ ${votes}` : ""}${spot.done ? " ・ ✅ 訪問済み" : ""}
+      ${c.icon} ${esc(c.label)} ・ ${st.icon} ${esc(st.label)}${votes ? ` ・ ❤️ ${votes}` : ""}
     </span>
     ${spot.note ? `<div style="margin-top:6px;white-space:pre-wrap">${esc(String(spot.note).slice(0, 140))}</div>` : ""}
     <div class="popup-actions">
@@ -145,6 +151,46 @@ export function fitAll(spots) {
   if (pts.length === 1) { map.setView(pts[0], 15); return true; }
   map.fitBounds(L.latLngBounds(pts).pad(0.15));
   return true;
+}
+
+/** 現在地マーカー */
+let hereMarker = null;
+export function showHere(lat, lng) {
+  if (hereMarker) hereMarker.remove();
+  hereMarker = L.marker([lat, lng], {
+    icon: L.divIcon({ className: "", html: `<div class="here-dot"></div>`,
+                      iconSize: [18, 18], iconAnchor: [9, 9] }),
+    interactive: false,
+    zIndexOffset: -100,
+  }).addTo(map);
+}
+
+/**
+ * 現在地を取得して地図を寄せる。
+ * @returns {Promise<{lat:number,lng:number}>}
+ */
+export function locate(zoom = 15) {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("この端末では位置情報を利用できません"));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        showHere(lat, lng);
+        map.setView([lat, lng], Math.max(map.getZoom(), zoom), { animate: true });
+        resolve({ lat, lng });
+      },
+      (err) => {
+        const msg = err.code === err.PERMISSION_DENIED
+          ? "位置情報の利用が許可されていません"
+          : "現在地を取得できませんでした";
+        reject(new Error(msg));
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+    );
+  });
 }
 
 /** 追加位置を示す一時マーカー */

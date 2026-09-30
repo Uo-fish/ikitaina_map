@@ -1,7 +1,7 @@
 // =====================================================================
 //  画面制御のメイン
 // =====================================================================
-import { CATEGORIES, catOf, VIEWER_EMAIL } from "./config.js";
+import { CATEGORIES, catOf, VIEWER_EMAIL, STATUSES, statusOf, readStatus } from "./config.js";
 import { esc, toast, modal, confirmDialog, promptDialog, fmtDate, debounce } from "./ui.js";
 import * as S from "./store.js";
 import * as M from "./map.js";
@@ -233,6 +233,56 @@ function startApp() {
 
   unsubBoards?.();
   unsubBoards = S.watchBoards(onBoards, (e) => toast(S.errMsg(e), "err"));
+
+  maybeShowGuide();
+}
+
+// =====================================================================
+//  初回ガイド（1回だけ表示）
+// =====================================================================
+const GUIDE_KEY = "ikitai:guideSeen:v1";
+
+function maybeShowGuide() {
+  let seen = false;
+  try { seen = localStorage.getItem(GUIDE_KEY) === "1"; } catch { /* noop */ }
+  if (seen) return;
+  // 描画が落ち着いてから
+  setTimeout(showGuide, 600);
+}
+
+function showGuide() {
+  const canEdit = S.canEdit();
+  const steps = canEdit
+    ? [
+        ["🔍", "場所を検索して追加", "上の「名前で検索」やお店の名前から、行きたい場所を登録できます。"],
+        ["❤", "行きたいを投票", "気になる場所にハートを付けて、みんなの行きたい度を共有。"],
+        ["📌", "状態を切り替え", "「候補 → 行く → 訪問済み」でカードの状態を切り替えられます。"],
+        ["🗺️", "順路を確認", "順路順に並べて、地図に線で表示。旅の計画が立てやすくなります。"],
+      ]
+    : [
+        ["🗺️", "地図で見る", "登録された行きたい場所を地図とリストで見られます。"],
+        ["🔍", "しぼり込み", "カテゴリや状態、キーワードで絞り込めます。"],
+        ["📄", "詳細を見る", "スポットをタップすると、メモやコメントを確認できます。"],
+      ];
+
+  modal({
+    title: "行きたいマップへようこそ",
+    body: `
+      <p class="help" style="margin:0 0 8px">かんたんな使い方です（この案内は最初の1回だけ）。</p>
+      ${steps.map(([emoji, title, desc], i) => `
+        <div class="guide-step">
+          <div class="g-num">${i + 1}</div>
+          <div class="g-emoji">${emoji}</div>
+          <div class="g-text">
+            <div class="g-title">${esc(title)}</div>
+            <div class="g-desc">${esc(desc)}</div>
+          </div>
+        </div>`).join("")}`,
+    actions: [{
+      label: "はじめる", kind: "primary",
+      onClick: () => { try { localStorage.setItem(GUIDE_KEY, "1"); } catch { /* noop */ } },
+    }],
+  });
 }
 
 function buildCatFilter() {
@@ -453,8 +503,7 @@ function visibleSpots() {
   const st = ui.filterState.value;
   let rows = S.state.spots.filter((s) => {
     if (cat !== "all" && (s.cat || "other") !== cat) return false;
-    if (st === "todo" && s.done) return false;
-    if (st === "done" && !s.done) return false;
+    if (st !== "all" && readStatus(s) !== st) return false;
     if (q) {
       const hay = `${s.name} ${s.note || ""} ${s.addr || ""}`.toLowerCase();
       if (!hay.includes(q)) return false;
@@ -488,13 +537,28 @@ function renderList(rows = visibleSpots()) {
   const total = S.state.spots.length;
 
   if (!rows.length) {
-    ui.spotList.innerHTML = `<div class="empty">${
-      total === 0
-        ? (S.canEdit()
-            ? "まだスポットがありません。<br />地図をクリックして追加してみましょう。"
-            : "まだスポットがありません。")
-        : "条件に合うスポットがありません。"
-    }</div>`;
+    if (total === 0 && S.canEdit()) {
+      ui.spotList.innerHTML = `
+        <div class="empty-cta">
+          <div class="ec-emoji">🗺️</div>
+          <div class="ec-title">最初の場所を追加しましょう</div>
+          <div class="ec-desc">
+            行きたいお店や観光地を登録すると、地図とここに並びます。<br />
+            名前で検索するのが一番かんたんです。
+          </div>
+          <button class="btn primary block" type="button" id="ec-search">🔍 名前で検索して追加</button>
+          <button class="btn block" type="button" id="ec-map">地図をタップして追加</button>
+        </div>`;
+      $("ec-search")?.addEventListener("click", () => openSearchDialog());
+      $("ec-map")?.addEventListener("click", () => {
+        setAddMode(true);
+        if (window.matchMedia("(max-width: 760px)").matches) closeSidebar();
+      });
+    } else {
+      ui.spotList.innerHTML = `<div class="empty">${
+        total === 0 ? "まだスポットがありません。" : "条件に合うスポットがありません。"
+      }</div>`;
+    }
     return;
   }
 
@@ -504,21 +568,31 @@ function renderList(rows = visibleSpots()) {
 
   ui.spotList.innerHTML = rows.map((s) => {
     const c = catOf(s.cat);
+    const stId = readStatus(s);
+    const st = statusOf(stId);
     const votes = Object.keys(s.votes || {}).length;
     const mine = !!(s.votes || {})[uid];
     const pos = S.state.spots.findIndex((x) => x.id === s.id);
     return `
-      <article class="spot-card ${s.id === selectedId ? "active" : ""} ${s.done ? "done" : ""}"
+      <article class="spot-card ${s.id === selectedId ? "active" : ""} ${stId === "visited" ? "done" : ""}"
                data-id="${esc(s.id)}" tabindex="0" role="button">
         <div class="sc-idx" style="background:${c.color}22;color:${c.color}">${orderIdx.get(s.id) ?? ""}</div>
         <div class="sc-body">
           <div class="sc-title">${esc(s.name)}</div>
           <div class="sc-meta">
             <span>${c.icon} ${esc(c.label)}</span>
+            <span class="status-chip ${stId}">${st.icon} ${esc(st.label)}</span>
             ${s.rating ? `<span>${"★".repeat(s.rating)}</span>` : ""}
-            ${s.createdByName ? `<span>${esc(s.createdByName)}</span>` : ""}
           </div>
           ${s.note ? `<div class="sc-note">${esc(s.note)}</div>` : ""}
+          ${S.canEdit() ? `
+            <div class="status-pick" data-sid="${esc(s.id)}">
+              ${STATUSES.map((x) => `
+                <button type="button" class="${x.id} ${x.id === stId ? "on" : ""}"
+                        data-status="${x.id}" aria-pressed="${x.id === stId}">
+                  <span class="ico">${x.icon}</span>${esc(x.label)}
+                </button>`).join("")}
+            </div>` : ""}
         </div>
         <div class="sc-side">
           <button class="vote ${mine ? "on" : ""}" type="button" data-vote="${esc(s.id)}"
@@ -535,6 +609,22 @@ function renderList(rows = visibleSpots()) {
 }
 
 ui.spotList.addEventListener("click", async (e) => {
+  const statusBtn = e.target.closest("[data-status]");
+  if (statusBtn) {
+    e.stopPropagation();
+    if (!S.canEdit()) return;
+    const wrap = statusBtn.closest("[data-sid]");
+    const sid = wrap?.dataset.sid;
+    const next = statusBtn.dataset.status;
+    const cur = S.state.spots.find((x) => x.id === sid);
+    if (!cur || readStatus(cur) === next) return; // 変化なしなら何もしない
+    try {
+      await S.setSpotStatus(S.state.boardId, sid, next);
+      toast(`「${statusOf(next).label}」にしました`, "ok");
+    } catch (err) { toast(S.errMsg(err), "err"); }
+    return;
+  }
+
   const voteBtn = e.target.closest("[data-vote]");
   if (voteBtn) {
     e.stopPropagation();
@@ -654,12 +744,22 @@ function openSpotDialog(spot, pos) {
     cat: "other", rating: 0, note: "",
     name: pos.name || "", addr: pos.addr || "", url: pos.url || "",
   };
+  const curStatus = readStatus(cur);
   const body = `
     <label class="field"><span>場所の名前 *</span>
       <input type="text" id="sp-name" value="${esc(cur.name)}" maxlength="80" placeholder="例）清水寺" /></label>
 
     <div class="sect-title">カテゴリ</div>
     ${catPicker(cur.cat || "other")}
+
+    <div class="sect-title">状態</div>
+    <div class="status-pick" id="sp-status">
+      ${STATUSES.map((x) => `
+        <button type="button" class="${x.id} ${x.id === curStatus ? "on" : ""}"
+                data-status="${x.id}" aria-pressed="${x.id === curStatus}">
+          <span class="ico">${x.icon}</span>${esc(x.label)}
+        </button>`).join("")}
+    </div>
 
     <div class="sect-title">おすすめ度</div>
     ${starPicker(cur.rating || 0)}
@@ -669,11 +769,6 @@ function openSpotDialog(spot, pos) {
 
     <label class="field"><span>参考リンク（任意）</span>
       <input type="url" id="sp-url" value="${esc(cur.url || "")}" placeholder="https://" /></label>
-
-    ${!isNew ? `
-      <label class="chk" style="margin-top:4px">
-        <input type="checkbox" id="sp-done" ${cur.done ? "checked" : ""} /> 訪問済みにする
-      </label>` : ""}
 
     <hr class="hr" />
     <label class="field"><span>Google マップの URL から座標を取り込む</span>
@@ -695,12 +790,24 @@ function openSpotDialog(spot, pos) {
 
   let pickedCat = cur.cat || "other";
   let pickedStar = cur.rating || 0;
+  let pickedStatus = curStatus;
   let unsubC = null;
 
   const m = modal({
     title: isNew ? "スポットを追加" : "スポットを編集",
     body,
     onMount: (el, close) => {
+      el.querySelector("#sp-status").addEventListener("click", (e) => {
+        const b = e.target.closest("[data-status]");
+        if (!b) return;
+        pickedStatus = b.dataset.status;
+        el.querySelectorAll("#sp-status button").forEach((x) => {
+          const on = x === b;
+          x.classList.toggle("on", on);
+          x.setAttribute("aria-pressed", String(on));
+        });
+      });
+
       el.querySelector("#sp-cats").addEventListener("click", (e) => {
         const b = e.target.closest("[data-cat]");
         if (!b) return;
@@ -811,6 +918,7 @@ function openSpotDialog(spot, pos) {
             name, lat, lng,
             cat: pickedCat,
             rating: pickedStar,
+            status: pickedStatus,
             note: el.querySelector("#sp-note").value.trim(),
             url,
             addr: el.querySelector("#sp-addr").value.trim(),
@@ -820,7 +928,6 @@ function openSpotDialog(spot, pos) {
               await S.addSpot(S.state.boardId, data);
               toast("追加しました", "ok");
             } else {
-              data.done = el.querySelector("#sp-done").checked;
               await S.updateSpot(S.state.boardId, spot.id, data);
               toast("保存しました", "ok");
             }
@@ -845,7 +952,7 @@ function openSpotView(spot) {
     title: spot.name,
     body: `
       ${row("カテゴリ", `${c.icon} ${esc(c.label)}`)}
-      ${row("状態", spot.done ? "✅ 訪問済み" : "🕒 未訪問")}
+      ${row("状態", (() => { const s = statusOf(readStatus(spot)); return `${s.icon} ${esc(s.label)}`; })())}
       ${row("おすすめ", spot.rating ? "★".repeat(spot.rating) : "")}
       ${row("行きたい", votes ? `❤️ ${votes} 人` : "")}
       ${row("メモ", esc(spot.note))}
@@ -1279,6 +1386,24 @@ function openSearchDialog(initial = "") {
 }
 
 $("btn-search-fab").addEventListener("click", () => openSearchDialog());
+
+// 現在地へ移動
+$("btn-locate").addEventListener("click", async () => {
+  const btn = $("btn-locate");
+  btn.classList.add("busy");
+  try {
+    const { lat, lng } = await M.locate();
+    // 編集者なら、その場で登録できるように追加位置の目印を置く
+    if (S.canEdit() && S.state.boardId) {
+      M.showGhost({ lat, lng });
+      toast("現在地に移動しました。ここを追加するなら「＋ 地図から追加」でこの地点をタップ");
+    }
+  } catch (e) {
+    toast(e.message || "現在地を取得できませんでした", "err");
+  } finally {
+    btn.classList.remove("busy");
+  }
+});
 
 // =====================================================================
 //  スマホ用メニュー（トップバーに入り切らない項目をまとめる）

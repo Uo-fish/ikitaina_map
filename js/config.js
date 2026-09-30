@@ -40,3 +40,25 @@ export const CATEGORIES = [
 
 export const CAT_MAP = new Map(CATEGORIES.map((c) => [c.id, c]));
 export const catOf = (id) => CAT_MAP.get(id) || CAT_MAP.get("other");
+
+// スポットの状態（旅行計画の進み具合）。
+// 旧データとの互換のため、内部では文字列 status を使いつつ
+// 既存の done(true/false) とも相互変換する（store.js 参照）。
+//   candidate … 候補（みんなで検討中）
+//   decided   … 行くと決定
+//   visited   … 訪問済み
+export const STATUSES = [
+  { id: "candidate", label: "候補",     icon: "🕒", color: "#59636f" },
+  { id: "decided",   label: "行く",     icon: "📌", color: "#2f6df6" },
+  { id: "visited",   label: "訪問済み", icon: "✅", color: "#17a673" },
+];
+
+export const STATUS_MAP = new Map(STATUSES.map((s) => [s.id, s]));
+export const statusOf = (id) => STATUS_MAP.get(id) || STATUS_MAP.get("candidate");
+
+/** 保存データから状態IDを求める（旧 done フィールドにも対応） */
+export function readStatus(spot) {
+  if (spot && STATUS_MAP.has(spot.status)) return spot.status;
+  if (spot && spot.done === true) return "visited";
+  return "candidate";
+}

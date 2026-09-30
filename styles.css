@@ -275,6 +275,76 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); outlin
   vertical-align: middle;
 }
 
+/* 地図上の丸ボタン（現在地など） */
+.map-ctrl {
+  position: absolute; left: 12px; top: 84px; z-index: 600;
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--surface);
+  font-size: 18px; line-height: 1; cursor: pointer;
+  box-shadow: var(--shadow); color: var(--text);
+  display: grid; place-items: center;
+}
+.map-ctrl:hover { background: #f0f3f8; }
+.map-ctrl.busy { opacity: .6; pointer-events: none; }
+.map-ctrl.busy::after {
+  content: ""; position: absolute; inset: 0; margin: auto;
+  width: 16px; height: 16px; border: 2px solid #c6ccd6;
+  border-top-color: var(--primary); border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+.map-ctrl.busy > span { visibility: hidden; }
+
+/* 現在地マーカー */
+.here-dot {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #2f6df6; border: 3px solid #fff;
+  box-shadow: 0 0 0 3px rgba(47, 109, 246, .35);
+}
+
+/* 状態バッジ（候補/行く/訪問済み） */
+.status-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 10.5px; font-weight: 800;
+  padding: 2px 7px; border-radius: 999px;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.status-chip.candidate { background: #eef1f6; color: #59636f; }
+.status-chip.decided   { background: #e3edff; color: #1f57c3; }
+.status-chip.visited   { background: #e2f6ee; color: #0f8a5f; }
+
+/* カード内の状態切り替えボタン */
+.status-pick { display: flex; gap: 4px; margin-top: 8px; }
+.status-pick button {
+  flex: 1 1 0; appearance: none; cursor: pointer;
+  border: 1px solid var(--border); background: #fff;
+  border-radius: 8px; padding: 8px 4px;
+  font: inherit; font-size: 12px; font-weight: 700; color: var(--muted);
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.status-pick button .ico { font-size: 16px; }
+.status-pick button.on.candidate { border-color: #59636f; background: #f4f6f9; color: #59636f; }
+.status-pick button.on.decided   { border-color: #2f6df6; background: #f2f7ff; color: #1f57c3; }
+.status-pick button.on.visited   { border-color: #17a673; background: #edfaf4; color: #0f8a5f; }
+
+/* 初回ガイド */
+.guide-step { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; }
+.guide-step .g-num {
+  flex: 0 0 auto; width: 28px; height: 28px; border-radius: 50%;
+  background: var(--primary); color: #fff;
+  font-weight: 800; font-size: 14px; display: grid; place-items: center;
+}
+.guide-step .g-emoji { font-size: 20px; }
+.guide-step .g-text { flex: 1 1 auto; }
+.guide-step .g-title { font-weight: 700; }
+.guide-step .g-desc { font-size: 13px; color: var(--muted); margin-top: 1px; }
+
+/* 空状態の作り込み */
+.empty-cta { text-align: center; padding: 30px 16px; }
+.empty-cta .ec-emoji { font-size: 40px; }
+.empty-cta .ec-title { font-weight: 800; font-size: 15px; margin: 10px 0 4px; }
+.empty-cta .ec-desc { font-size: 13px; color: var(--muted); margin-bottom: 16px; line-height: 1.7; }
+.empty-cta .btn { margin: 4px auto; }
+
 /* ============ スポットカード ============ */
 .spot-card {
   display: flex; gap: 10px; align-items: flex-start;
@@ -323,6 +393,11 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); outlin
   font-size: 14px;
 }
 .pin > span { transform: rotate(45deg); }
+.pin-flag {
+  position: absolute; top: -8px; left: -8px;
+  font-size: 13px; line-height: 1;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,.4));
+}
 .pin-wrap.sel .pin { outline: 3px solid var(--primary); outline-offset: 2px; }
 .pin-wrap.done .pin { filter: grayscale(1); opacity: .65; }
 .pin-num {
@@ -468,6 +543,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--primary); outlin
   .main { position: relative; }
   .fab-group { right: 12px; bottom: 18px; gap: 7px; }
   .fab { padding: 11px 15px; font-size: 13px; }
+  .map-ctrl { top: 76px; }
   .modal-back { padding: 0; align-items: flex-end; }
   .modal { max-width: none; border-radius: 14px 14px 0 0; max-height: 92vh; }
 }

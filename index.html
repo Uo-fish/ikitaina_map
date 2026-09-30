@@ -129,8 +129,9 @@
           <select id="filter-cat" aria-label="カテゴリでしぼり込む"></select>
           <select id="filter-state" aria-label="状態でしぼり込む">
             <option value="all">すべて</option>
-            <option value="todo">未訪問</option>
-            <option value="done">訪問済み</option>
+            <option value="candidate">候補</option>
+            <option value="decided">行く</option>
+            <option value="visited">訪問済み</option>
           </select>
           <select id="sort" aria-label="並び順">
             <option value="order">順路順</option>
@@ -152,6 +153,7 @@
     <div class="mapwrap">
       <div id="map" aria-label="地図"></div>
       <div id="map-banner" class="map-banner hidden" role="status"></div>
+      <button id="btn-locate" class="map-ctrl" type="button" title="現在地へ移動" aria-label="現在地へ移動">📍</button>
       <div class="fab-group">
         <button id="btn-search-fab" class="fab secondary" type="button">🔍 名前で検索</button>
         <button id="btn-add-mode" class="fab" type="button">＋ 地図から追加</button>

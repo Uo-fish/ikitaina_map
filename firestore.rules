@@ -160,7 +160,11 @@ service cloud.firestore {
         allow update: if canEdit()
           && request.resource.data.name.size() <= 80
           && request.resource.data.lat is number
-          && request.resource.data.lng is number;
+          && request.resource.data.lng is number
+          && (
+            !("status" in request.resource.data)
+            || request.resource.data.status in ['candidate', 'decided', 'visited']
+          );
 
         allow delete: if canEdit();
 
