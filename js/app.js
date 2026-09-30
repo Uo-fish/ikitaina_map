@@ -1450,3 +1450,23 @@ $("btn-sidebar").addEventListener("click", () => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && addMode && !$("modal-root").childElementCount) setAddMode(false);
 });
+
+// =====================================================================
+//  Service Worker 登録（オフライン対応 / ホーム画面に追加）
+//  file:// では動かないので http(s) のときだけ登録する
+// =====================================================================
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").then((reg) => {
+      // 新しいバージョンを見つけたら、次回起動で自動的に切り替わる
+      reg.addEventListener("updatefound", () => {
+        const sw = reg.installing;
+        sw?.addEventListener("statechange", () => {
+          if (sw.state === "installed" && navigator.serviceWorker.controller) {
+            toast("新しいバージョンがあります。次回起動時に更新されます");
+          }
+        });
+      });
+    }).catch(() => { /* 登録に失敗してもアプリは通常どおり動く */ });
+  });
+}

@@ -25,7 +25,20 @@ export function initMap(el, h = {}) {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
 
-  markerLayer = L.layerGroup().addTo(map);
+  // markercluster が読み込めていれば密集したマーカーをまとめる。
+  // 何らかの理由で読み込めなくても通常のレイヤーで動くようにフォールバック。
+  if (typeof L.markerClusterGroup === "function") {
+    markerLayer = L.markerClusterGroup({
+      showCoverageOnHover: false,
+      maxClusterRadius: 45,
+      spiderfyOnMaxZoom: true,
+      disableClusteringAtZoom: 17, // 十分寄ったら個別表示
+      chunkedLoading: true,
+    });
+  } else {
+    markerLayer = L.layerGroup();
+  }
+  markerLayer.addTo(map);
   map.on("click", (e) => handlers.onMapClick?.(e.latlng));
   return map;
 }
@@ -129,17 +142,29 @@ function drawRoute(spots) {
   }).addTo(map);
 }
 
+/** クラスタにまとめられたマーカーでも確実に吹き出しを開く */
+function openMarkerPopup(m) {
+  if (!m) return;
+  // markercluster 使用時、クラスタの中に隠れているマーカーは
+  // zoomToShowLayer でほどいてから開く必要がある
+  if (typeof markerLayer.zoomToShowLayer === "function") {
+    markerLayer.zoomToShowLayer(m, () => m.openPopup());
+  } else {
+    m.openPopup();
+  }
+}
+
 /** 指定スポットへ寄る */
 export function focusSpot(id, zoom = 16) {
   const m = markers.get(id);
   if (!m) return;
   map.setView(m.getLatLng(), Math.max(map.getZoom(), zoom), { animate: true });
-  m.openPopup();
+  openMarkerPopup(m);
 }
 
 /** 表示位置は変えずに吹き出しだけ開く（マーカー再生成後の復帰用） */
 export function openPopupOf(id) {
-  markers.get(id)?.openPopup();
+  openMarkerPopup(markers.get(id));
 }
 
 /** 全スポットが入るように表示範囲を合わせる */
